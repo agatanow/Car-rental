@@ -1,0 +1,187 @@
+package com.sample
+import java.util.Date;
+import com.sample.Car_Rental.Category;
+import com.sample.Car_Rental.Car;
+import com.sample.Car_Rental.Client;
+import com.sample.Car_Rental.Rent;
+import com.sample.Car_Rental.Return;
+import com.sample.Car_Rental.Rent_Date;
+
+
+rule "Init"
+	when
+	then
+//categories
+		Category A	= new Category('A', 'B',59,69,10,10);
+		insert(A);
+		Category B	= new Category('B', 'D',69,79,10,10);
+		insert(B);
+		Category D	= new Category('D', '0',79,89,10,10);
+		insert(D);
+//cars
+		Car car1	= new Car("car1",'A');
+		insert(car1);
+		Car car2	= new Car("car2",'A');
+		insert(car2);
+		Car car3	= new Car("car3",'B');
+		insert(car3);
+		Car car4	= new Car("car4",'D');
+		insert(car4);
+		Car car5	= new Car("car5",'D');
+		insert(car5);
+
+//client1
+		Client client1 = new Client("client1", true);
+		insert(client1);
+		Rent rent1 = new Rent(client1, '11 11 2016', '12 11 2016', '0', 1, 1);
+		insert(rent1);
+		Return return1= new Return(rent1, '12 11 2016', 66, 0, 0);
+		insert(return1);
+//client2
+		Client client2 = new Client("client2", false);
+		insert(client2);
+		Rent rent2 = new Rent(client2, '10 11 2016', '13 11 2016', 'B', 0, 1);
+		insert(rent2);
+		Rent rent3 = new Rent(client2, '11 11 2016', '14 11 2016', 'A', 0, 1);
+		insert(rent3);
+		Return return2= new Return(rent2, '13 11 2016', 100, 0, 0);
+		insert(return2);
+//client3
+		Client client3 = new Client("client3", false);
+		insert(client3);
+		Rent rent4 = new Rent(client3, '11 11 2016', '16 11 2016', 'B', 0, 0);
+		insert(rent4);
+		Return return4= new Return(rent4, '18 11 2016', 1000, 1, 2);
+		insert(return4);
+		
+	end
+	
+
+rule "no_pref_cat_is_A"
+	when
+		r: Rent()
+		eval(r.get_pref_cat() == '0')
+	then
+		r.set_pref_cat('A');
+		update(r);
+	end
+	
+rule "rent_for_less_than_3d"
+	when
+			
+		t: Category()
+		r: Rent(t.get_name() == r.get_pref_cat())
+		eval(r.get_period() <= 3 ) 
+		eval(r.get_km_cost() == 0 ) 
+	then
+		r.set_day_cost(t.get_less_than_3d());
+		r.set_km_cost(1);
+		update(r);
+	end
+	
+rule "rent_for_more_than_3d"
+	when
+		t: Category()
+		r: Rent(t.get_name() == r.get_pref_cat())
+		eval(r.get_period() > 3 ) 
+		eval(r.get_km_cost() == 0 ) 
+	then
+		r.set_day_cost(t.get_more_than_3d());
+		r.set_km_cost(0.5);
+		update(r);
+	end
+	
+//checks if the date for the rent is correct 
+rule "check_correct_date"
+	when
+		r: Rent()	
+		t: Category(t.get_name() == r.get_pref_cat())
+		eval( r.get_date_correct() == false)
+		not (exists(n: Rent_Date(n.get_which() == r.get_client().get_name(),  n.overlapping(r.get_from(),r.get_to() ) )))
+	then
+		r.set_add_costs(t.get_chair(),t.get_bicycle_carrier(),r.get_client().get_member());
+		r.set_date_correct(true);
+		update(r);
+		insert(new Rent_Date(r.get_client().get_name(),r.get_from(),r.get_to()));
+		System.out.println("Rent for "+ r.get_period() +" days by "+ r.get_client().get_name());
+
+	end
+	
+
+
+//checks if the car in preffered cat is available in the period
+rule "rent_a_car_in_preffered_category"
+	when
+		r: Rent()
+		c: Car(c.get_category()==r.get_pref_cat())
+		eval(r.get_has_car() == false)
+		eval(r.get_date_correct() == true)
+		not (exists(n: Rent_Date(n.get_which() == c.get_id(),  n.overlapping(r.get_from(),r.get_to() ) )))
+		
+	then
+		r.set_car(c);
+		r.set_has_car(true);
+		insert(new Rent_Date(c.get_id(),r.get_from(),r.get_to()));
+		System.out.println("Car "+ c.get_id() + " is available for " + r.get_client().get_name());
+		update(r);
+		
+	end
+	
+//searches for car in higher category 
+rule "rent_a_car_in_higher_category"
+	when
+		r: Rent()
+		t: Category()
+		eval(t.get_name() == r.get_pref_cat())
+		eval(t.get_next() != '0')
+		c: Car(c.get_category()==t.get_next())
+		eval(r.get_has_car() == false)
+		eval(r.get_date_correct() == true)
+		not (exists(n: Rent_Date(n.get_which() == c.get_id(),  n.overlapping(r.get_from(),r.get_to() ) )))
+		
+	then
+		r.set_car(c);
+		r.set_has_car(true);
+		insert(new Rent_Date(c.get_id(),r.get_from(),r.get_to()));
+		System.out.println("Car "+ c.get_id() + " is available for " + r.get_client().get_name());
+		update(r)	
+	end
+
+//deletes rents, which have no car available 
+rule "delete_rent_where_no_cars"
+	when
+		k: Client()
+		r: Rent(r.get_client() == k)
+		eval(r.get_has_car() == false)
+		eval(r.get_date_correct() == true)
+	then
+		retract(r);
+		System.out.println("No car in preffered category or higher was available for " + k.get_name() );		
+	end
+	
+
+rule "return_a_car_late"
+ 	when
+ 		z: Return()
+ 		exists( r:Rent(z.get_rent()==r))
+ 		eval(z.get_total_cost() == 0 )
+ 		eval(z.get_date().getTime() > z.get_rent().get_to().getTime() == true)
+ 	then
+		z.set_days_late_costs(z.get_rent().get_to(),z.get_rent().get_day_cost());
+	end
+	
+rule "return_a_car_on_time"
+ 	when
+ 		z: Return()
+ 	then
+ 		System.out.println("--------------------------------");
+ 		System.out.println("CLIENT: " + z.get_rent().get_client().get_name());
+ 		long wyp = z.get_rent().get_day_cost()*z.get_rent().get_period() + z.get_rent().get_add_costs();
+		System.out.println("RENT: " + wyp);
+		System.out.println("PUNISHMENT: " + z.get_punish_costs());
+		System.out.println("MILEAGE: " + z.get_mileage()*z.get_rent().get_km_cost());
+		System.out.println("LATENESS: " + z.get_days_late_costs());
+		z.set_total_cost(z.get_punish_costs() + wyp + z.get_mileage()*z.get_rent().get_km_cost() + z.get_days_late_costs());
+ 		System.out.println("Total cost of a rent: " + z.get_total_cost());
+	end
+
